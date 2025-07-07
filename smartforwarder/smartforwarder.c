@@ -40,6 +40,9 @@ static volatile bool force_quit;
 /* MAC updating enabled by default */
 static int mac_updating = 1;
 
+/* Ports set in promiscuous mode off by default. */
+static int promiscuous_on;
+
 /* smartfwd_rx_queue_per_lcore indicates number of rx queue handled by each lcore */
 static unsigned int smartfwd_rx_queue_per_lcore = 1;
 
@@ -183,7 +186,6 @@ smartfwd_parse_args(int argc, char **argv)
         char *prgname = argv[0];
 
         argvopt = argv;
-        port_pair_params = NULL;
 
         while ((opt = getopt_long(argc, argvopt, short_options,
                                   lgopts, &option_index)) != EOF) {
@@ -433,7 +435,7 @@ main(int argc, char **argv)
 
                 printf("Port %u, MAC address: " RTE_ETHER_ADDR_PRT_FMT "\n\n",
                         portid,
-                        RTE_ETHER_ADDR_BYTES(&l2fwd_ports_eth_addr[portid]));
+                        RTE_ETHER_ADDR_BYTES(&smartfwd_ports_eth_addr[portid]));
 
                 /* initialize port stats */
                 memset(&port_statistics, 0, sizeof(port_statistics));
