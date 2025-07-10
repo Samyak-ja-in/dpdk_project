@@ -43,6 +43,9 @@ static int mac_updating = 1;
 /* Ports set in promiscuous mode off by default. */
 static int promiscuous_on;
 
+/* Filtering packets is off by default */
+static int filtering_packets = 0;
+
 /* smartfwd_rx_queue_per_lcore indicates number of rx queue handled by each lcore */
 static unsigned int smartfwd_rx_queue_per_lcore = 1;
 
@@ -55,6 +58,9 @@ static uint64_t timer_period = 10; /* default period is 10 seconds */
 #define MAX_PKT_BURST 32
 #define MEMPOOL_CACHE_SIZE 256
 #define BURST_TX_DRAIN_US 100 /* TX drain every ~100us */
+
+#define SUBNET_BASE    RTE_IPV4(17, 0, 0, 0)
+#define SUBNET_MASK    RTE_IPV4(255, 0, 0, 0)
 
 /*
  * Configurable number of RX/TX ring descriptors
@@ -153,6 +159,14 @@ print_stats(void)
         fflush(stdout);
 }
 
+static inline void
+print_ether_addr(const char *what, struct rte_ether_addr *eth_addr)
+{
+        char buf[RTE_ETHER_ADDR_FMT_SIZE];
+        rte_ether_format_addr(buf, RTE_ETHER_ADDR_FMT_SIZE, eth_addr);
+        printf("%s%s\n", what, buf);
+}
+
 static void
 smartfwd_mac_updating(struct rte_mbuf *m, unsigned dest_portid)
 {
@@ -160,13 +174,44 @@ smartfwd_mac_updating(struct rte_mbuf *m, unsigned dest_portid)
         void *tmp;
 
         eth = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
+	//print_ether_addr("src_addr:",&eth->src_addr);
 
         /* 02:00:00:00:00:xx */
         tmp = &eth->dst_addr.addr_bytes[0];
         *((uint64_t *)tmp) = 0x000000000002 + ((uint64_t)dest_portid << 40);
+        *((uint64_t *)tmp) = 0x25fea923cef4;
 
         /* src addr */
         rte_ether_addr_copy(&smartfwd_ports_eth_addr[dest_portid], &eth->src_addr);
+
+	//print_ether_addr("src_addr:",&eth->src_addr);
+	//print_ether_addr("dst_addr:",&eth->dst_addr);
+}
+
+/**
+ * Returns : 1 if packet needs to be dropped
+ * 	     0 if packet needs to be forwarded 
+ */
+static int
+smartfwd_filter_packets(struct rte_mbuf *mbuf){
+	struct rte_ether_hdr *eth_hdr;
+    	struct rte_ipv4_hdr *ip_hdr;
+
+    	eth_hdr = rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *);
+    	if (eth_hdr->ether_type != rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4))
+        	return 0;
+
+    	ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
+
+    	uint32_t src_ip = rte_be_to_cpu_32(ip_hdr->src_addr);
+
+    	if ((src_ip & SUBNET_MASK) == SUBNET_BASE) {
+        	return 0;  
+    	}
+	else
+	// Drop the packet
+    	return 1;	
+
 }
 
 /* Simple forward. 8< */
@@ -176,16 +221,27 @@ smartfwd_simple_forward(struct rte_mbuf *m, unsigned portid)
         unsigned dst_port;
         int sent;
         struct rte_eth_dev_tx_buffer *buffer;
+	int is_drop = 0;
 
         dst_port = smartfwd_dst_ports[portid];
 
         if (mac_updating)
                 smartfwd_mac_updating(m, dst_port);
-
-        buffer = tx_buffer[dst_port];
-        sent = rte_eth_tx_buffer(dst_port, 0, buffer, m);
-        if (sent)
-                port_statistics[dst_port].tx += sent;
+	
+	if(filtering_packets)
+		is_drop = smartfwd_filter_packets(m);
+	
+	if(is_drop)
+	{
+		rte_pktmbuf_free(m);
+		port_statistics[portid].dropped += 1;
+	}
+	else{
+        	buffer = tx_buffer[dst_port];
+        	sent = rte_eth_tx_buffer(dst_port, 0, buffer, m);
+        	if (sent)
+                	port_statistics[dst_port].tx += sent;
+	}
 }
 /* >8 End of simple forward. */
 
@@ -305,6 +361,7 @@ smartfwd_usage(const char *prgname)
                "  -P : Enable promiscuous mode\n"
                "  -q NQ: number of queue (=ports) per lcore (default is 1)\n"
                "  -T PERIOD: statistics will be refreshed each PERIOD seconds (0 to disable, 10 default, 86400 maximum)\n"
+	       "  -F Filtering: If ip packet filtering is enabled(Default Disabled)"
                "  --no-mac-updating: Disable MAC addresses updating (enabled by default)\n"
                "      When enabled:\n"
                "       - The source MAC address is replaced by the TX port MAC address\n"
@@ -351,6 +408,7 @@ static const char short_options[] =
         "P"   /* promiscuous */
         "q:"  /* number of queues */
         "T:"  /* timer period */
+	"F"   /* IP Packet Filtering Enabled */
         ;
 
 #define CMD_LINE_OPT_NO_MAC_UPDATING "no-mac-updating"
@@ -405,6 +463,9 @@ smartfwd_parse_args(int argc, char **argv)
                         }
                         timer_period = timer_secs;
                         break;
+
+		case 'F':
+			filtering_packets = 1;
 
                 case CMD_LINE_OPT_NO_MAC_UPDATING_NUM:
                         mac_updating = 0;
