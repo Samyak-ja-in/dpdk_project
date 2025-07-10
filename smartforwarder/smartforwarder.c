@@ -50,8 +50,11 @@ static unsigned int smartfwd_rx_queue_per_lcore = 1;
 /* A tsc-based timer responsible for triggering statistics printout */
 static uint64_t timer_period = 10; /* default period is 10 seconds */
 
+#define RTE_LOGTYPE_SMARTFWD RTE_LOGTYPE_USER1
+
 #define MAX_PKT_BURST 32
 #define MEMPOOL_CACHE_SIZE 256
+#define BURST_TX_DRAIN_US 100 /* TX drain every ~100us */
 
 /*
  * Configurable number of RX/TX ring descriptors
@@ -124,10 +127,7 @@ print_stats(void)
 
         printf("\nPort statistics ====================================");
 
-        for (portid = 0; portid < RTE_MAX_ETHPORTS; portid++) {
-                /* skip disabled ports */
-                if ((l2fwd_enabled_port_mask & (1 << portid)) == 0)
-                        continue;
+        for (portid = 0; portid < 2; portid++) {
                 printf("\nStatistics for port %u ------------------------------"
                            "\nPackets sent: %24"PRIu64
                            "\nPackets received: %20"PRIu64
@@ -177,7 +177,7 @@ smartfwd_simple_forward(struct rte_mbuf *m, unsigned portid)
         int sent;
         struct rte_eth_dev_tx_buffer *buffer;
 
-        dst_port = l2fwd_dst_ports[portid];
+        dst_port = smartfwd_dst_ports[portid];
 
         if (mac_updating)
                 smartfwd_mac_updating(m, dst_port);
@@ -210,15 +210,15 @@ smartfwd_main_loop(void)
         qconf = &lcore_queue_conf[lcore_id];
 
         if (qconf->n_rx_port == 0) {
-                RTE_LOG(INFO, L2FWD, "lcore %u has nothing to do\n", lcore_id);
+                RTE_LOG(INFO, SMARTFWD, "lcore %u has nothing to do\n", lcore_id);
                 return;
         }
 
-        RTE_LOG(INFO, L2FWD, "entering main loop on lcore %u\n", lcore_id);
+        RTE_LOG(INFO, SMARTFWD, "entering main loop on lcore %u\n", lcore_id);
         for (i = 0; i < qconf->n_rx_port; i++) {
 
                 portid = qconf->rx_port_list[i];
-                RTE_LOG(INFO, L2FWD, " -- lcoreid=%u portid=%u\n", lcore_id,
+                RTE_LOG(INFO, SMARTFWD, " -- lcoreid=%u portid=%u\n", lcore_id,
                         portid);
 
         }

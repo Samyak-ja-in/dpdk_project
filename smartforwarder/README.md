@@ -3,7 +3,7 @@
 
 1)For compiling the application
 ```
-gcc -o smartforwarder smartforwarder.c -lrte_eal -lrte_ethdev -lrte_mbuf -lrte_pdump
+gcc -o smartforwarder smartforwarder.c -lrte_eal -lrte_ethdev -lrte_mbuf -lrte_pdump -lrte_log
 ```
 
 2) For Running the application
